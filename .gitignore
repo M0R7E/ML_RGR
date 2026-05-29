@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+
+catboost_info/
+
+
+МД/*.aux
+МД/*.log
+МД/*.fls
+МД/*.fdb_latexmk
+МД/*.synctex.gz
+МД/*.out
+МД/*.toc

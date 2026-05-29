@@ -1,0 +1,11 @@
+# Реестр обученных классификаторов CS:GO
+target=bomb_planted
+rows=118088
+positive_rate=0.1118
+
+# id | название | файл | auc | ap | f1
+logreg | Логистическая регрессия | logreg.pkl | 0.973732 | 0.767773 | 0.739789
+random_forest | Случайный лес | random_forest.pkl | 0.992239 | 0.930119 | 0.819911
+catboost | CatBoost | catboost.pkl | 0.996942 | 0.970760 | 0.929140
+gbm | Градиентный бустинг | gbm.pkl | 0.996726 | 0.967704 | 0.925258
+adaboost | AdaBoost | adaboost.pkl | 0.996237 | 0.963708 | 0.922393

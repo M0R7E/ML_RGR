@@ -1,0 +1,271 @@
+\documentclass[14pt,a4paper]{extarticle}
+
+\usepackage{pmifi}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{float}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+
+\newcommand{\GithubRepoURL}{\url{https://github.com/M0R7E/ML_RGR}}
+\newcommand{\StreamlitAppURL}{\url{https://morseew.streamlit.app/}}
+
+\begin{document}
+
+\begin{center}
+{\large \textbf{Завьялов Егор Сергеевич}}\\
+Группа: \textbf{ФИТ-242}\\
+Кафедра: \textbf{ПМФИ} (Прикладная математика и фундаментальная информатика)
+\end{center}
+\vspace{0.5em}
+
+\tableofcontents
+\newpage
+
+\unnumsection{Введение}
+
+Актуальность темы связана с необходимостью применения обученных моделей машинного обучения к новым данным и представления результатов прогнозирования в форме, доступной для анализа~\cite{pareto,gigaspaces}. В рамках дисциплины «Машинное обучение и большие данные» рассматривается полный цикл разработки ML-приложения: подготовка данных, обучение моделей, сериализация и инференс через веб-интерфейс.
+
+Объектом исследования является набор данных \path{data/csgo_done.csv}, содержащий снимки состояния раундов CS:GO. Целевая переменная \path{bomb_planted} определяет факт установки бомбы (0/1). Решается задача \textbf{бинарной классификации} при дисбалансе классов: доля положительного класса составляет около $11\%$.
+
+Для реализации использованы библиотеки Python: \texttt{scikit-learn}, \texttt{CatBoost}, \texttt{pandas}, \texttt{NumPy}, \texttt{Plotly} и \texttt{Streamlit}~\cite{sklearn,streamlit,catboost}.
+
+\textbf{Цель работы:} разработать веб-дашборд для инференса моделей классификации и анализа данных CS:GO.
+
+\textbf{Задачи:}
+\begin{enumerate}
+  \item выполнить предобработку данных, обучить и сериализовать модели, оценить качество по F1, ROC-AUC и PR-AUC;
+  \item реализовать дашборд на \texttt{Streamlit} с четырьмя разделами: сведения о разработчике, описание данных, визуализации, инференс;
+  \item подготовить репозиторий, примеры CSV для демонстрации прогнозов и оформить отчёт.
+\end{enumerate}
+
+\unnumsection{Основная часть}
+
+\section{Модели машинного обучения и их сериализация}
+
+\subsection{Постановка задачи и описание данных}
+
+Каждая запись набора данных описывает состояние раунда в фиксированный момент времени. Объём выборки $N = 118\,088$ наблюдений. Используются признаки \path{time_left}, \path{ct_score}, \path{t_score}, \path{map}, а также агрегированные показатели команд CT и T: здоровье, броня, деньги, число шлемов, количество живых игроков, наличие наборов для разминирования.
+
+Для оценки качества моделей применяются метрики ROC-AUC, PR-AUC (Average Precision) и F1-score при пороге $0{,}5$. Разбиение на обучающую и тестовую выборки выполняется в соотношении 80/20 с параметрами \texttt{stratify=bomb\_planted} и \texttt{random\_state=42}.
+
+\subsection{Предобработка данных и состав моделей}
+
+Числовые признаки нормализуются с помощью \texttt{StandardScaler}. Категориальный признак \path{map} кодируется \texttt{OneHotEncoder(handle\_unknown=ignore)}. Конвейер \texttt{ColumnTransformer} объединён с классификатором в \texttt{Pipeline}, что обеспечивает идентичность предобработки при обучении и инференсе.
+
+Обучение выполняется скриптом \path{jobs/fit_all_models.py}. Результаты эксперимента фиксируются в файле \path{storage/classifiers/registry.txt}. Обучены пять моделей:
+\begin{itemize}
+  \item \textbf{ML1 (\path{logreg})} --- логистическая регрессия (\texttt{class\_weight=balanced});
+  \item \textbf{ML2 (\path{gbm})} --- градиентный бустинг (\texttt{GradientBoostingClassifier});
+  \item \textbf{ML3 (\path{catboost})} --- \texttt{CatBoostClassifier};
+  \item \textbf{ML4 (\path{random\_forest})} --- случайный лес (\texttt{RandomForestClassifier});
+  \item \textbf{ML5 (\path{adaboost})} --- \texttt{AdaBoostClassifier} на деревьях решений.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Качество моделей на тестовой выборке}
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+Модель & Алгоритм & ROC-AUC & PR-AUC & F1@0.5 \\
+\hline
+ML1 & logreg & 0.974 & 0.768 & 0.740 \\
+ML2 & gbm & 0.997 & 0.968 & 0.925 \\
+ML3 & catboost & 0.997 & 0.970 & 0.930 \\
+ML4 & random\_forest & 0.997 & 0.965 & 0.928 \\
+ML5 & adaboost & 0.996 & 0.964 & 0.918 \\
+\hline
+\end{tabular}
+\end{table}
+
+Наилучшие значения PR-AUC и F1 показывает модель ML3 (CatBoost).
+
+\subsection{Сериализация моделей}
+
+Модели scikit-learn и CatBoost сохраняются модулем \texttt{pickle} (\texttt{HIGHEST\_PROTOCOL}) в каталог \path{storage/classifiers/} с расширением \path{.pkl}. Каждый файл содержит полный \texttt{Pipeline}, включая этап предобработки.
+
+Файл \path{registry.txt} содержит параметры эксперимента (\path{target}, \path{rows}, \path{positive\_rate}) и сведения о каждой модели: идентификатор, наименование, имя файла, значения метрик AUC, AP и F1 на тестовой выборке.
+
+\section{Разработка веб-дашборда}
+
+\subsection{Структура приложения}
+
+Дашборд реализован на \texttt{Streamlit}. Точка входа --- \path{app/main.py}. Страницы расположены в каталоге \path{app/pages/}:
+\begin{itemize}
+  \item \path{1\_about.py} --- сведения о разработчике;
+  \item \path{2\_dataset.py} --- описание набора данных и метрики моделей;
+  \item \path{3\_visualizations.py} --- визуализация данных (Plotly);
+  \item \path{4\_inference.py} --- инференс выбранной модели.
+\end{itemize}
+
+Модули \path{backend/csgo\_dataset.py} и \path{backend/classifier\_tools.py} содержат функции загрузки данных, построения конвейера предобработки, вычисления метрик и работы с реестром моделей.
+
+\subsection{Фрагменты исходного кода}
+
+Фрагмент расчёта прогноза на странице инференса:
+
+\begin{lstlisting}
+proba = proba_from_estimator(model, raw)
+out["proba_bomb_planted"] = proba
+out["pred_bomb_planted"] = (proba >= 0.5).astype(int)
+\end{lstlisting}
+
+Фрагмент сохранения модели после обучения:
+
+\begin{lstlisting}
+file_name = f"{model_id}.pkl"
+save_pickle(pipe, STORAGE_DIR / file_name)
+save_registry({
+    "target": TARGET,
+    "rows": int(len(df)),
+    "positive_rate": round(float(y.mean()), 4),
+    "models": registry_models,
+})
+\end{lstlisting}
+
+На странице инференса реализованы: выбор модели, загрузка файла CSV, ручной ввод признаков, вывод вероятности $P(\texttt{bomb\_planted}=1)$ и класса при пороге 0.5.
+
+\subsection{Размещение проекта}
+
+Исходный код размещён в репозитории: \GithubRepoURL.\\
+Веб-приложение опубликовано на Streamlit Cloud: \StreamlitAppURL.
+
+\section{Демонстрация результатов прогнозирования}
+
+\subsection{Прогнозирование на типичных данных}
+
+Файл \path{report/data/csgo_examples_typical.csv} содержит наблюдения с типичными значениями признаков. Данные используются для проверки работы интерфейса загрузки CSV и формирования столбцов \path{proba\_bomb\_planted} и \path{pred\_bomb\_planted}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{inference_typical.png}
+\caption{Инференс на типичных данных (\path{csgo_examples_typical.csv})}
+\end{figure}
+
+\subsection{Прогнозирование на данных с выбросами}
+
+Файл \path{report/data/csgo_examples_outliers.csv} содержит наблюдения с экстремальными значениями признаков. Данные используются для оценки поведения моделей в нетипичных игровых ситуациях.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{inference_outliers.png}
+\caption{Инференс на данных с выбросами (\path{csgo_examples_outliers.csv})}
+\end{figure}
+
+\newpage
+\unnumsection{Заключение}
+
+В работе выполнена бинарная классификация события \path{bomb_planted} по данным CS:GO. Обучены и сериализованы пять моделей машинного обучения, проведена оценка качества на тестовой выборке. Реализован веб-дашборд на \texttt{Streamlit} с разделами описания данных, визуализации и инференса. Наилучший результат по метрикам PR-AUC и F1 показала модель ML3 (CatBoost).
+
+\newpage
+\begin{thebibliography}{99}
+
+\bibitem{sklearn}
+Pedregosa F. et al.
+Scikit-learn: Machine Learning in Python //
+\textit{Journal of Machine Learning Research}. - 2011. - Vol.~12. - P.~2825--2830.
+- URL: \url{https://scikit-learn.org/stable/} (дата обращения: 28.05.2026).
+
+\bibitem{streamlit}
+Streamlit documentation. -
+URL: \url{https://docs.streamlit.io/} (дата обращения: 28.05.2026).
+
+\bibitem{catboost}
+Prokhorenkova L. et al.
+CatBoost: unbiased boosting with categorical features //
+\textit{Advances in Neural Information Processing Systems}. - 2018. - Vol.~31.
+- URL: \url{https://catboost.ai/} (дата обращения: 28.05.2026).
+
+\bibitem{pareto}
+Machine Learning Inference - All You Need to Know. -
+URL: \url{https://pareto.ai/blog/machine-learning-inference} (дата обращения: 28.05.2026).
+
+\bibitem{gigaspaces}
+Machine Learning Inference. -
+URL: \url{https://www.gigaspaces.com/data-terms/machine-learning-inference} (дата обращения: 28.05.2026).
+
+\end{thebibliography}
+
+\newpage
+\unnumsection{Приложение А}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{1.png}
+\caption{Главная страница дашборда}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{2.png}
+\caption{Страница описания набора данных}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{3.png}
+\caption{Страница визуализаций}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth]{4.png}
+\caption{Страница инференса}
+\end{figure}
+
+\newpage
+\unnumsection{Приложение Б}
+
+\begin{lstlisting}[
+  language=Python,
+  frame=single,
+  framerule=0.4pt,
+  captionpos=t,
+  title={\texttt{app/pages/1\_about.py}},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible
+]
+import streamlit as st
+from pathlib import Path
+
+st.title("Страница 1. Сведения о разработчике")
+
+PHOTO_PATH = Path(__file__).resolve().parents[2] / "assets" / "dev.png"
+if PHOTO_PATH.exists():
+    st.image(str(PHOTO_PATH), width=280)
+
+st.markdown(
+    """
+**ФИО:** Завьялов Егор Сергеевич
+**Группа:** ФИТ-242
+**Тема РГР:** веб-дашборд для инференса моделей ML
+**Задача:** классификация `bomb_planted` (CS:GO)
+"""
+)
+\end{lstlisting}
+
+\begin{lstlisting}[
+  language=Python,
+  frame=single,
+  framerule=0.4pt,
+  captionpos=t,
+  title={\texttt{jobs/fit\_all\_models.py} (фрагмент)},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible
+]
+for model_id, (title, pipe) in catalog.items():
+    pipe.fit(split.X_train, split.y_train)
+    metrics = compute_metrics(split.y_test, proba_from_estimator(pipe, split.X_test))
+    save_pickle(pipe, STORAGE_DIR / f"{model_id}.pkl")
+    registry_models[model_id] = {
+        "name": title,
+        "file": f"{model_id}.pkl",
+        "metrics": metrics.as_dict(),
+    }
+save_registry({"target": TARGET, "rows": len(df), "models": registry_models})
+\end{lstlisting}
+
+\end{document}
