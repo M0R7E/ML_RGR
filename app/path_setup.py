@@ -1,4 +1,3 @@
-"""Добавляет корень проекта в sys.path (каталог с backend/)."""
 from __future__ import annotations
 
 import sys
